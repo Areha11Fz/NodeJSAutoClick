@@ -1,8 +1,9 @@
 const robot = require('robotjs');
 
 // =========================
-// Debug mode setting
-const DEBUG = true; // Set to true for debug mode (run after 2 seconds), false for actual date/time
+// Debug mode settings
+const DEBUG_MODE = true;         // Set to true for a short countdown, false for the configured date/time
+const DEBUG_SINGLE_CLICK = true; // If true, performs a single click instead of spam clicking
 // =========================
 
 // User-configurable settings
@@ -31,27 +32,39 @@ const SPAM_CLICK_Y = 1319;
  * @returns {Promise<void>}
  */
 function sleep(ms) {
-    // Ensure delay is not negative, as setTimeout would execute immediately
     if (ms < 0) ms = 0;
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
- * Formats a Date object for display.
- * @param {Date} date - The date to format.
- * @returns {string} - The formatted date string.
+ * Formats a Date object into a 'YYYY-MM-DD HH:MM:SS.ms' string.
+ * @param {Date} d - The date to format.
+ * @returns {string} The formatted date string.
  */
-function formatDateTime(date) {
-    // Pad the milliseconds to always have 3 digits
-    const ms = String(date.getMilliseconds()).padStart(3, '0');
-    // Use built-in functions for formatting to avoid manual slicing issues
-    return date.toLocaleString('sv').replace(' ', 'T').slice(0, 19) + '.' + ms;
+const customFormat = (d) => {
+    const pad = (num, size = 2) => String(num).padStart(size, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+};
+
+/**
+ * Formats a duration in milliseconds to a 'HH:MM:SS.ms' string.
+ * @param {number} ms - The duration in milliseconds.
+ * @returns {string} The formatted duration string.
+ */
+function formatDuration(ms) {
+    if (ms < 0) ms = 0;
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    const milliseconds = String(ms % 1000).padStart(3, '0');
+    return `${hours}:${minutes}:${seconds}.${milliseconds}`;
 }
 
 async function main() {
     let targetDate;
 
-    if (DEBUG) {
+    if (DEBUG_MODE) {
         const debugSeconds = 2;
         targetDate = new Date(Date.now() + debugSeconds * 1000);
         console.log(`[DEBUG MODE] Target time set to ${debugSeconds} seconds from now.`);
@@ -63,16 +76,19 @@ async function main() {
     const currentTime = new Date();
     const delay = targetDate.getTime() - currentTime.getTime();
 
-    // Use a custom formatter that handles local time better
-    const customFormat = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}.${String(d.getMilliseconds()).padStart(3, '0')}`;
-
     console.log(`Current time: ${customFormat(currentTime)}`);
     console.log(`Target time:  ${customFormat(targetDate)}`);
 
     if (delay > 0) {
-        // **FIXED THIS LINE**: Changed Python formatting to JavaScript's .toFixed() method
-        console.log(`Waiting for ${(delay / 1000).toFixed(2)} seconds (about ${(delay / 1000 / 60).toFixed(2)} minutes)...`);
-        await sleep(delay);
+        console.log("\nStarting countdown...");
+        // Real-time countdown loop
+        while (Date.now() < targetDate.getTime()) {
+            const remaining = targetDate.getTime() - Date.now();
+            process.stdout.write(`\rTime remaining: ${formatDuration(remaining)}   `);
+            await sleep(1); // Sleep for 1ms to prevent high CPU usage
+        }
+        process.stdout.write("\rCountdown finished.                \n\n");
+
 
         // Perform initial single click
         console.log(`Performing initial click at (${INITIAL_CLICK_X}, ${INITIAL_CLICK_Y})...`);
@@ -80,21 +96,25 @@ async function main() {
         robot.mouseClick();
         console.log("Initial click done.");
 
-        // Perform spam click for a set duration at the second location
-        const spamDuration = 5000; // 1 second in milliseconds
-        console.log(`Performing spam click at (${SPAM_CLICK_X}, ${SPAM_CLICK_Y}) for ${spamDuration / 1000} seconds...`);
+        // Conditionally perform spam click or single debug click
+        robot.moveMouse(SPAM_CLICK_X, SPAM_CLICK_Y);
 
-        const startTime = Date.now();
-        let clicks = 0;
-        robot.moveMouse(SPAM_CLICK_X, SPAM_CLICK_Y); // Move mouse to position first
-
-        while (Date.now() < startTime + spamDuration) {
+        if (DEBUG_SINGLE_CLICK) {
+            console.log(`Performing single debug click at (${SPAM_CLICK_X}, ${SPAM_CLICK_Y})...`);
             robot.mouseClick();
-            clicks++;
+            console.log(`Single debug click finished at coordinates (${SPAM_CLICK_X}, ${SPAM_CLICK_Y})`);
+        } else {
+            const spamDuration = 5000; // 5 seconds in milliseconds
+            console.log(`Performing spam click at (${SPAM_CLICK_X}, ${SPAM_CLICK_Y}) for ${spamDuration / 1000} seconds...`);
+            const startTime = Date.now();
+            let clicks = 0;
+            while (Date.now() < startTime + spamDuration) {
+                robot.mouseClick();
+                clicks++;
+            }
+            console.log(`Spam clicking finished after ${spamDuration / 1000} seconds.`);
+            console.log(`Performed approximately ${clicks} clicks at coordinates (${SPAM_CLICK_X}, ${SPAM_CLICK_Y})`);
         }
-
-        console.log(`Spam clicking finished after ${spamDuration / 1000} seconds.`);
-        console.log(`Performed approximately ${clicks} clicks at coordinates (${SPAM_CLICK_X}, ${SPAM_CLICK_Y})`);
     } else {
         console.log("The target time is in the past. Please set a future time.");
     }
